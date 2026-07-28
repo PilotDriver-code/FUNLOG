@@ -1,0 +1,3 @@
+﻿base;carteira;ativo;evento;data;valor;origem
+LZ;INTRAGKINE195;MOVIA3;Juros;05/09/2025;138;"{""sistema"": ""cetip"", ""conta"": ""6554800-2"", ""tipo_titulo"": ""DEB"", ""cod"": ""60"", ""descricao"": ""PAGAMENTO DE JUROS"", ""status"": ""PEND ATU: VALOR"", ""qt"": ""23"", ""pu"": ""6"", ""data_venc"": ""05/03/2027""}"
+LZ;INTRAGKINE195;MOVIA3;Prêmio;05/09/2025;230;"{""sistema"": ""cetip"", ""conta"": ""6554800-2"", ""tipo_titulo"": ""DEB"", ""cod"": ""806"", ""descricao"": ""PAGAMENTO DE PREMIO"", ""status"": ""PEND ATU: VALOR"", ""qt"": ""23"", ""pu"": ""10"", ""data_venc"": ""05/03/2027""}"

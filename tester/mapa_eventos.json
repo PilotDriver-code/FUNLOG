@@ -1,0 +1,15 @@
+{
+  "_comentario": "De-para de eventos. Edite aqui sem tocar no codigo. O que nao estiver mapeado vai para AVISOS, nunca e chutado.",
+  "sac": {
+    "I": "Amortizacao",
+    "J": "Juros",
+    "M": "Juros",
+    "V": "Vencimento"
+  },
+  "cetip": {
+    "60": "Juros",
+    "74": "Amortizacao",
+    "12": "Vencimento",
+    "806": "Prêmio"
+  }
+}
