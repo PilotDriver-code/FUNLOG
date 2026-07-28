@@ -23,8 +23,19 @@ EVENTO_SAC = {
 }
 
 
+import unicodedata
+
+
 class ErroDeCarga(Exception):
     """Falha que deve PARAR a execução (arquivos incoerentes), não virar saída."""
+
+
+def _sem_acento(txt):
+    """Remove acentos p/ comparar texto sem depender de encoding."""
+    if not isinstance(txt, str):
+        return ""
+    nfkd = unicodedata.normalize("NFKD", txt)
+    return "".join(c for c in nfkd if not unicodedata.combining(c))
 
 
 # ---------------------------------------------------------------------------
@@ -76,33 +87,43 @@ def _num(serie):
     return pd.to_numeric(serie.astype(str).str.strip(), errors="coerce")
 
 
-def normalizar_sac_operacao(caminho_operacao, traducao):
+def normalizar_sac_operacao(caminho_operacao, traducao, mapa_sac, tipos_titulo):
     """
     Lê o SAC Operação e devolve um DataFrame no formato comum.
     Cada linha bruta vira uma linha normalizada; nada é somado aqui.
     """
-    df = pd.read_csv(caminho_operacao, sep="\t", encoding="utf-8-sig", dtype=str)
-    df = df[df["IC_PUB_PRIV"] == "I"]
+    df = pd.read_csv(caminho_operacao, sep=";", encoding="utf-8-sig", dtype=str)
 
-    obrig = {"CD_SISTEMA", "CLCLI_CD", "DT", "CD", "CD_LASTRO",
+    obrig = {"CD_SISTEMA", "CLCLI_CD", "DT", "CD", "CD_LASTRO", "RFTP_CD",
              "SG_OPERACAO", "DS_TP_TRANSACAO", "QT", "VL_PU_OPERACAO", "VL_BRUTO"}
     faltando = obrig - set(df.columns)
     if faltando:
         raise ErroDeCarga(f"Operação sem colunas: {faltando}")
 
-    for c in ["CD_SISTEMA", "CLCLI_CD", "CD_LASTRO", "SG_OPERACAO"]:
+    for c in ["CD_SISTEMA", "CLCLI_CD", "CD_LASTRO", "SG_OPERACAO", "RFTP_CD"]:
         df[c] = df[c].astype(str).str.strip()
 
     linhas = []
-    nao_traduzidos = []   # eventos fora do de-para → viram aviso
-    lastros_ausentes = [] # lastro sem match no Posição → ERRO (arquivos de dias diferentes)
+    nao_traduzidos = []
+    lastros_ausentes = []
+    descartados = {"tipo_fora": 0, "v_nao_resgate": 0}
 
     for r in df.itertuples():
-        # --- traduzir evento ---
-        evento = EVENTO_SAC.get(r.SG_OPERACAO)
+        # --- FILTRO 1: so tipos de titulo aceitos (RFTP_CD) ---
+        if r.RFTP_CD not in tipos_titulo:
+            descartados["tipo_fora"] += 1
+            continue
+
+        # --- FILTRO 2: V (vencimento) so quando DS_TP_TRANSACAO e Resgate ---
+        if r.SG_OPERACAO == "V" and _sem_acento(str(r.DS_TP_TRANSACAO)).strip().upper() != "RESGATE":
+            descartados["v_nao_resgate"] += 1
+            continue
+
+        # --- traduzir evento (do mapa externo) ---
+        evento = mapa_sac.get(r.SG_OPERACAO)
         if evento is None:
             nao_traduzidos.append(r.SG_OPERACAO)
-            continue  # decisão: fora do de-para vai pra avisos, não entra
+            continue
 
         # --- achar o ativo (CETIP_SELIC) via lastro ---
         ativo = traducao.get((r.CD_SISTEMA, r.CD_LASTRO))
@@ -137,6 +158,7 @@ def normalizar_sac_operacao(caminho_operacao, traducao):
     diagnostico = {
         "linhas_lidas":       len(df),
         "linhas_normalizadas": len(resultado),
+        "descartados":         descartados,
         "eventos_nao_mapeados": sorted(set(nao_traduzidos)),
         "lastros_ausentes":    sorted(set(lastros_ausentes)),
     }
@@ -150,9 +172,10 @@ import json
 from pathlib import Path
 
 def carregar_mapa_eventos(caminho="mapa_eventos.json"):
-    """Le o de-para editavel. Cobre os dois lados (sac e cetip)."""
+    """Le o de-para editavel. Cobre os dois lados (sac e cetip) e a lista de
+    tipos de titulo aceitos (RFTP_CD que entram na conciliacao)."""
     dados = json.loads(Path(caminho).read_text(encoding="utf-8"))
-    return dados["sac"], dados["cetip"]
+    return dados["sac"], dados["cetip"], dados.get("tipo_titulo_sac", [])
 
 
 # ---------------------------------------------------------------------------
@@ -190,19 +213,10 @@ def normalizar_cetip(caminho_cetip, mapa_cetip):
 
     # nomes com acento vindos do arquivo
     C = {
-        "conta": "Conta",
-        "carteira": "Carteira",
-        "titulo": "Título",
-        "tipo_titulo": "Tipo Título",
-        "cod": "CódOperação",
-        "tipo_op": "Tipo Operação",
-        "qt": "Quantidade",
-        "pu": "PU",
-        "valor": "Valor",
-        "status": "Status",
-        "data_liq": "Data Liquidação",
-        "data_venc": "Data Vencimento",
-        "base": "Base",
+        "conta": "Conta", "carteira": "Carteira", "titulo": "Título",
+        "tipo_titulo": "Tipo Título", "cod": "CódOperação", "tipo_op": "Tipo Operação",
+        "qt": "Quantidade", "pu": "PU", "valor": "Valor", "status": "Status",
+        "data_liq": "Data Liquidação", "data_venc": "Data Vencimento",
     }
     faltando = {v for v in C.values()} - set(df.columns)
     if faltando:
@@ -234,11 +248,11 @@ def normalizar_cetip(caminho_cetip, mapa_cetip):
             continue
 
         linhas.append({
-            "base":     str(row[C["base"]]).strip(),                 # base vem da carteira no dado real (merge)
+            "base":     None,                 # base vem da carteira no dado real (merge)
             "carteira": carteira,
             "ativo":    str(row[C["titulo"]]).strip(),   # == CD_CETIP_SELIC do SAC
             "evento":   evento,
-            "data":     row[C["data_liq"]],
+            "data":     _data_extenso(row[C["data_liq"]]),
             "valor":    n(row[C["valor"]]),
             "origem": {
                 "sistema":     "cetip",
@@ -249,7 +263,7 @@ def normalizar_cetip(caminho_cetip, mapa_cetip):
                 "status":      row[C["status"]],
                 "qt":          n(row[C["qt"]]),
                 "pu":          n(row[C["pu"]]),
-                "data_venc":   row[C["data_venc"]],
+                "data_venc":   _data_extenso(row[C["data_venc"]]),
             },
         })
 
@@ -268,14 +282,6 @@ def normalizar_cetip(caminho_cetip, mapa_cetip):
 # ---------------------------------------------------------------------------
 import re
 import unicodedata
-
-def _sem_acento(txt):
-    """Remove acentos p/ comparar comentario sem depender de encoding."""
-    if not isinstance(txt, str):
-        return ""
-    nfkd = unicodedata.normalize("NFKD", txt)
-    return "".join(c for c in nfkd if not unicodedata.combining(c))
-
 
 def _parse_ds_caixa(ds):
     """
@@ -393,3 +399,73 @@ def normalizar_sac_caixa(caminho_caixa):
         "eventos_nao_reconhecidos": sorted(set(x for x in eventos_nao_reconhecidos if x)),
     }
     return resultado, diagnostico
+
+
+# ---------------------------------------------------------------------------
+# 3b. Consolidacao da CETIP: soma eventos iguais + fusao de vencimento
+#
+# A CETIP vem PARTIDA: pode ter 74 e 874 (ambos amortizacao) em linhas
+# separadas, e um papel que vence aparece como resgate + juros soltos.
+# O SAC ja vem fundido; entao fundimos a CETIP para alcancar o SAC.
+#
+# Regras:
+#   1. eventos iguais do mesmo papel SOMAM (74+874 -> uma amortizacao)
+#   2. papel com Vencimento -> vencimento+juros+amortizacao viram UMA linha
+#      "Vencimento" (soma). O Premio NUNCA funde: fica separado.
+# ---------------------------------------------------------------------------
+def consolidar_cetip(norm_cetip):
+    if norm_cetip.empty:
+        return norm_cetip
+
+    df = norm_cetip.copy()
+    df["valor"] = pd.to_numeric(df["valor"], errors="coerce")
+
+    chave = ["carteira", "ativo", "data"]
+
+    # passo 1 — soma eventos iguais (junta 74+874, juros repetidos, etc.)
+    somado = (df.groupby(chave + ["evento"], dropna=False)
+                .agg(valor=("valor", "sum"),
+                     origem=("origem", list))
+                .reset_index())
+
+    linhas = []
+    for _, grupo in somado.groupby(chave, dropna=False):
+        eventos = set(grupo["evento"])
+        tem_venc = "Vencimento" in eventos
+
+        if not tem_venc:
+            # sem vencimento: cada evento continua sua propria linha
+            for _, r in grupo.iterrows():
+                linhas.append(_linha_consol(r, r["evento"], [r["origem"]]))
+            continue
+
+        # com vencimento: funde tudo menos Premio
+        funde = grupo[grupo["evento"] != "Prêmio"]
+        premio = grupo[grupo["evento"] == "Prêmio"]
+
+        valor_venc = funde["valor"].sum()
+        origens_venc = list(funde["origem"])
+        base_r = funde.iloc[0]
+        linha_v = _linha_consol(base_r, "Vencimento", origens_venc)
+        linha_v["valor"] = valor_venc
+        # guarda quais eventos entraram na fusao, p/ auditoria
+        linha_v["origem"] = {"fundidos": list(funde["evento"]), "detalhe": origens_venc}
+        linhas.append(linha_v)
+
+        # premio (se houver) sai como componente separado
+        for _, r in premio.iterrows():
+            linhas.append(_linha_consol(r, "Prêmio", [r["origem"]]))
+
+    return pd.DataFrame(linhas)
+
+
+def _linha_consol(r, evento, origens):
+    return {
+        "base":     None,
+        "carteira": r["carteira"],
+        "ativo":    r["ativo"],
+        "evento":   evento,
+        "data":     r["data"],
+        "valor":    r["valor"],
+        "origem":   {"sistema": "cetip", "consolidado": True, "detalhe": origens},
+    }

@@ -1,5 +1,6 @@
 {
   "_comentario": "De-para de eventos. Edite aqui sem tocar no codigo. O que nao estiver mapeado vai para AVISOS, nunca e chutado.",
+  "_comentario_tipos": "tipo_titulo_sac: coloque os RFTP_CD EXATOS como aparecem nos arquivos (ex: DEBNC, CRI-I, CRI P, LF). O filtro e por igualdade.",
   "sac": {
     "I": "Amortizacao",
     "J": "Juros",
@@ -10,6 +11,8 @@
     "60": "Juros",
     "74": "Amortizacao",
     "12": "Vencimento",
-    "806": "Prêmio"
-  }
+    "806": "Prêmio",
+    "874": "Amortizacao"
+  },
+  "tipo_titulo_sac": ["DEBNC", "CRI-I", "CRI P", "CRA", "LF"]
 }

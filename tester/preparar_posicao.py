@@ -7,7 +7,7 @@
 import pandas as pd
 from normalizacao import ErroDeCarga
 
-def preparar_quantidades(caminho_posicao):
+def preparar_quantidades(caminho_posicao, tipos_titulo):
     """
     Agrega o SAC Posicao por (base, carteira, ativo) somando as quantidades.
     A soma com sinal resolve a netagem (+61/-61). Descarta o ativo se a
@@ -23,6 +23,15 @@ def preparar_quantidades(caminho_posicao):
 
     for c in ["base", "carteira", "ativo"]:
         pos[c] = pos[c].astype(str).str.strip()
+
+    # filtro: so tipos de titulo aceitos (mesma regra do Operacao)
+    if "RFTP_CD" in pos.columns:
+        pos["RFTP_CD"] = pos["RFTP_CD"].astype(str).str.strip()
+        antes_filtro = len(pos)
+        pos = pos[pos["RFTP_CD"].isin(tipos_titulo)]
+        removidos_tipo = antes_filtro - len(pos)
+    else:
+        removidos_tipo = 0
     for c in ["QT_DISPONIVEL", "QT_BLOQUEADA", "QT_TOTAL"]:
         pos[c] = pd.to_numeric(pos[c], errors="coerce").fillna(0)
 
@@ -47,6 +56,7 @@ def preparar_quantidades(caminho_posicao):
 
     diagnostico = {
         "linhas_lidas": len(pos),
+        "removidos_por_tipo": removidos_tipo,
         "ativos_apos_agregar": antes,
         "ativos_netados_a_zero": netados,
         "ativos_com_bloqueio": int(agg["tem_bloqueio"].sum()),
