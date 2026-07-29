@@ -17,6 +17,33 @@ import pandas as pd
 
 CHAVE = ["base", "carteira", "ativo", "data"]
 
+import ast
+import pandas as pd
+
+
+def converter_naturezas(valor):
+    if isinstance(valor, list):
+        return valor
+
+    if pd.isna(valor):
+        return []
+
+    texto = str(valor).strip()
+
+    if not texto:
+        return []
+
+    try:
+        convertido = ast.literal_eval(texto)
+
+        if isinstance(convertido, list):
+            return convertido
+
+    except (ValueError, SyntaxError):
+        pass
+
+    return [texto]
+
 
 def juntar_cetip_sac(sac_consolidado, cetip_consolidada, posicao_qtd=None):
     """
@@ -30,13 +57,11 @@ def juntar_cetip_sac(sac_consolidado, cetip_consolidada, posicao_qtd=None):
     sac = _preparar(sac_consolidado, "sac")
     cet = _preparar(cetip_consolidada, "cetip")
 
-
     print("COLUNAS SAC:")
     print(sac_consolidado.columns.tolist())
 
     print("\nCOLUNAS CETIP:")
     print(cetip_consolidada.columns.tolist())
-
 
     # --- OUTER JOIN por chave + evento ---
     comparado = pd.merge(
@@ -64,9 +89,7 @@ def juntar_cetip_sac(sac_consolidado, cetip_consolidada, posicao_qtd=None):
     # naturezas do caixa (postergacao/estorno) por linha
     if "naturezas" not in comparado.columns:
         comparado["naturezas"] = [[] for _ in range(len(comparado))]
-    comparado["naturezas"] = comparado["naturezas"].apply(
-        lambda x: x if isinstance(x, list) else []
-    )
+    comparado["naturezas"] = comparado["naturezas"].apply(converter_naturezas)
 
     # flag de bloqueio por ativo (do Posicao)
     bloqueio = _mapa_bloqueio(posicao_qtd)
